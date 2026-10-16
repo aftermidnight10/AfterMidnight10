@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBAN Defteri</title>
+<style>
+  :root {
+    --bg: #eef2f1;
+    --surface: #ffffff;
+    --ink: #17302b;
+    --muted: #5d716c;
+    --line: #cfdad7;
+    --accent: #0d6b5c;
+    --accent-ink: #ffffff;
+    --danger: #a33a2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111b19;
+      --surface: #182523;
+      --ink: #e4efec;
+      --muted: #93a9a4;
+      --line: #2a3d39;
+      --accent: #3fb59f;
+      --accent-ink: #08221d;
+      --danger: #e58a7d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 20px; }
+  .form, .rec {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .form { display: grid; gap: 12px; margin-bottom: 24px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+  input {
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    padding: 8px 14px;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); padding: 10px 14px; font-weight: 600; }
+  button.done { background: var(--accent); color: var(--accent-ink); }
+  button.del { border-color: transparent; color: var(--danger); padding: 4px 8px; font-size: .85rem; }
+  .list { display: grid; gap: 12px; }
+  .rec-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .rec-id { font-weight: 700; }
+  .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .val { min-width: 0; overflow-wrap: anywhere; }
+  .val small { display: block; color: var(--muted); font-size: .78rem; }
+  .val span { font-variant-numeric: tabular-nums; }
+  .line button { flex: none; min-width: 124px; }
+  .acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .acts button { padding: 4px 10px; font-size: .85rem; }
+  .acts button.del { padding: 4px 8px; }
+  #gorunum { max-width: 100%; padding: 10px; }
+  #gorunum .rec { padding: 10px 12px; }
+  #gorunum .rec-id { font-size: 1.05rem; }
+  #gorunum .rec-head { margin-bottom: 2px; }
+  #gorunum .line { padding: 6px 0; }
+  #gorunum .val span { font-size: .9rem; }
+  #gorunum .line button { min-width: 112px; padding: 6px 8px; font-size: .85rem; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+<main id="admin">
+  <h1>IBAN Defteri</h1>
+
+  <div class="form">
+    <label>Kayıt adı
+      <input id="kid" autocomplete="off">
+    </label>
+    <div class="row">
+      <label>Ad Soyad
+        <input id="ad" autocomplete="off" placeholder="Örn. Ahmet Yılmaz">
+      </label>
+      <label>IBAN
+        <input id="iban" autocomplete="off" placeholder="TR00 0000 0000 0000 0000 0000 00">
+      </label>
+    </div>
+    <button class="primary" id="ekle">Kaydet</button>
+  </div>
+
+  <div class="list" id="list"></div>
+</main>
+<main id="gorunum" hidden></main>
+
+<script>
+  var KEY = "iban-defteri-v1";
+  var kayitlar = [];
+
+  function yukle() {
+    try { kayitlar = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { kayitlar = []; }
+  }
+  function kaydet() {
+    try { localStorage.setItem(KEY, JSON.stringify(kayitlar)); } catch (e) {}
+  }
+
+  function sonrakiAd() {
+    var max = 0;
+    kayitlar.forEach(function (k) {
+      var m = /#(\d+)\s*$/.exec(k.id);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return "İBAN#" + String(max + 1).padStart(3, "0");
+  }
+
+  function baglanti(k) {
+    var taban = location.href.split("#")[0];
+    return taban + "#k=" + encodeURIComponent(JSON.stringify({ i: k.id, a: k.ad, b: k.iban }));
+  }
+
+  // Tam 140 baytlık kopyalama sayfası: metin boşlukla 140'a tamamlanır.
+  function mini(k) {
+    var iban = k.iban.replace(/\s+/g, "");
+    var ad = k.ad.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    var on = "<i onclick=navigator.clipboard.writeText(event.target.id)>";
+    var adaylar = [
+      on + '<button id="' + ad + '">Ad<button id=' + iban + ">IBAN",
+      on + '<b id="' + ad + '">Ad <b id=' + iban + ">IBAN"
+    ];
+    for (var j = 0; j < adaylar.length; j++) {
+      var n = new TextEncoder().encode(adaylar[j]).length;
+      if (n <= 140) return adaylar[j] + new Array(140 - n + 1).join(" ");
+    }
+    return null;
+  }
+
+  function kucukPencere(k) {
+    var h = mini(k);
+    if (!h) {
+      window.open(baglanti(k), "_blank", "popup,width=440,height=270");
+      alert("Ad Soyad ve IBAN 140 bayta sığmadı. Bu kayıt için normal küçük sayfa açıldı.");
+      return;
+    }
+    var u = URL.createObjectURL(new Blob([h], { type: "text/html;charset=utf-8" }));
+    window.open(u, "_blank", "popup,width=260,height=110");
+  }
+
+  function ibanBicimle(s) {
+    var t = s.replace(/\s+/g, "").toUpperCase();
+    return t.replace(/(.{4})/g, "$1 ").trim();
+  }
+
+  function kopyala(metin, btn, etiket) {
+    function tamam() {
+      btn.textContent = "Kopyalandı ✓";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = etiket; btn.classList.remove("done"); }, 1400);
+    }
+    function yedek() {
+      var ta = document.createElement("textarea");
+      ta.value = metin;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); tamam(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(metin).then(tamam, yedek);
+    } else {
+      yedek();
+    }
+  }
+
+  function satir(baslik, deger, etiket) {
+    var d = document.createElement("div");
+    d.className = "line";
+    var v = document.createElement("div");
+    v.className = "val";
+    var s = document.createElement("small");
+    s.textContent = baslik;
+    var sp = document.createElement("span");
+    sp.textContent = deger;
+    v.appendChild(s);
+    v.appendChild(sp);
+    var b = document.createElement("button");
+    b.textContent = etiket;
+    b.onclick = function () { kopyala(deger, b, etiket); };
+    d.appendChild(v);
+    d.appendChild(b);
+    return d;
+  }
+
+  function ciz() {
+    var list = document.getElementById("list");
+    list.innerHTML = "";
+    if (!kayitlar.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Henüz kayıt yok. Yukarıdan ilk kaydı ekleyin.";
+      list.appendChild(e);
+    }
+    kayitlar.forEach(function (k, i) {
+      var c = document.createElement("div");
+      c.className = "rec";
+      var h = document.createElement("div");
+      h.className = "rec-head";
+      var t = document.createElement("span");
+      t.className = "rec-id";
+      t.textContent = k.id;
+      var sil = document.createElement("button");
+      sil.className = "del";
+      sil.textContent = "Sil";
+      sil.onclick = function () {
+        if (confirm(k.id + " kaydı silinsin mi?")) {
+          kayitlar.splice(i, 1);
+          kaydet();
+          ciz();
+        }
+      };
+      var acts = document.createElement("div");
+      acts.className = "acts";
+      var ac = document.createElement("button");
+      ac.textContent = "Sayfayı aç";
+      ac.onclick = function () { kucukPencere(k); };
+      acts.appendChild(ac);
+      acts.appendChild(sil);
+      h.appendChild(t);
+      h.appendChild(acts);
+      c.appendChild(h);
+      c.appendChild(satir("Ad Soyad", k.ad, "Ad Soyad Kopyala"));
+      c.appendChild(satir("IBAN", k.iban, "IBAN Kopyala"));
+      list.appendChild(c);
+    });
+    document.getElementById("kid").value = sonrakiAd();
+  }
+
+  document.getElementById("ekle").onclick = function () {
+    var id = document.getElementById("kid").value.trim();
+    var ad = document.getElementById("ad").value.trim();
+    var iban = ibanBicimle(document.getElementById("iban").value);
+    if (!id || !ad || !iban) { alert("Kayıt adı, Ad Soyad ve IBAN alanlarını doldurun."); return; }
+    var yeni = { id: id, ad: ad, iban: iban };
+    kayitlar.push(yeni);
+    kaydet();
+    kucukPencere(yeni);
+    document.getElementById("ad").value = "";
+    document.getElementById("iban").value = "";
+    ciz();
+    document.getElementById("ad").focus();
+  };
+
+  function gorunumGoster(veri) {
+    document.getElementById("admin").hidden = true;
+    var g = document.getElementById("gorunum");
+    g.hidden = false;
+    document.title = veri.i;
+    var c = document.createElement("div");
+    c.className = "rec";
+    var h = document.createElement("div");
+    h.className = "rec-head";
+    var t = document.createElement("span");
+    t.className = "rec-id";
+    t.textContent = veri.i;
+    h.appendChild(t);
+    c.appendChild(h);
+    c.appendChild(satir("Ad Soyad", veri.a, "Ad Soyad Kopyala"));
+    c.appendChild(satir("IBAN", veri.b, "IBAN Kopyala"));
+    g.appendChild(c);
+  }
+
+  var veri = null;
+  if (location.hash.indexOf("#k=") === 0) {
+    try { veri = JSON.parse(decodeURIComponent(location.hash.slice(3))); } catch (e) { veri = null; }
+  }
+  if (veri && veri.i) {
+    gorunumGoster(veri);
+  } else {
+    yukle();
+    ciz();
+  }
+</script>
+</body>
+</html>
